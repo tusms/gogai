@@ -105,9 +105,10 @@ async function start() {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return message('カードのQRコードをもう一度読み取ってください。');
   try { info = await call({ action: 'info' }); }
   catch (e) { return message('通信できませんでした。電波のよいところで、もう一度読み取ってください。', true); }
-  if (info.state === 'invalid') return message('このQRコードは使えません。<br>わからないときは、ブースの係の人に声をかけてください。');
+  if (info.state === 'invalid') return message('このQRコードは使用できません。<br>ご不明な点は、ブースの係の人にお申し付けください。');
   if (info.state === 'expired') return message('受け取り期間が終わりました。');
   if (info.state === 'need_pin') return view('vSet');
+  if (info.blocked) return message(BLOCKED);
   if (!info.ready) return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
   view('vLogin');
 }
@@ -132,9 +133,16 @@ $('vSet').onsubmit = async e => {
 };
 
 // ---- パスワードを入れて受け取る
+//   5 回まちがえると 5 分ロック。そのあとさらに 5 回まちがえると無効（係の人がリセットするまで受け取れない）
+const FORGOT = '<br>パスワードを忘れた場合は、ブースの係の人に声をかけてください。';
+const BLOCKED = 'パスワードのまちがいが続いたため、このカードでは受け取れなくなりました。<br><br>ブースの係の人に声をかけてください（パスワードを設定し直します）。';
 function errText(j) {
-  if (j.error === 'wrong') return `パスワードがちがいます（あと ${j.remaining} 回まで）。`;
-  if (j.error === 'locked') return `まちがいが続いたため、${fmt(j.until)} まで入力できません。わからないときは係の人に声をかけてください。`;
+  if (j.error === 'wrong' && j.next === 'block')
+    return `パスワードがちがいます。<br>あと ${j.remaining} 回まちがえると、このカードでは受け取れなくなります（係の人によるリセットが必要になります）。` + FORGOT;
+  if (j.error === 'wrong')
+    return `パスワードがちがいます。<br>あと ${j.remaining} 回まちがえると、${j.minutes || 5} 分間入力できなくなります。` + FORGOT;
+  if (j.error === 'locked')
+    return `まちがいが続いたため、${fmt(j.until)} まで入力できません。<br>このあと、さらに 5 回まちがえると、このカードでは受け取れなくなります。` + FORGOT;
   if (j.error === 'not_ready') return '写真はまだできていません。少し待ってからお試しください。';
   if (j.error === 'need_pin') return 'パスワードがまだ設定されていません。';
   return '受け取れませんでした。もう一度お試しください。';
@@ -146,7 +154,10 @@ $('vLogin').onsubmit = async e => {
   $('loginBtn').disabled = true; $('loginErr').textContent = '受け取っています…';
   try {
     const j = await call({ action: 'get', pin, kind: 'jpg' });
-    if (!j.ok) { $('loginErr').textContent = errText(j); return; }
+    if (!j.ok) {
+      if (j.error === 'blocked') return message(BLOCKED);
+      $('loginErr').innerHTML = errText(j); return;
+    }
     PIN = pin;
     files.jpg = b64toFile(j.data, j.name, j.mime);
     $('num').textContent = j.number;
