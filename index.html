@@ -23,6 +23,7 @@
   .box { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:18px; font-size:14px; }
   .hide { display:none; }
   a.dl { display:block; text-align:center; margin-top:8px; font-size:15px; }
+  button.eye { width:auto; font-size:14px; font-weight:normal; padding:6px 14px; margin-top:8px; background:#fff; color:var(--blue); }
   .tip { border:1px solid #c9d8f2; background:#f3f7fe; border-radius:8px; padding:10px 12px; font-size:15px; margin:14px 0 0; }
   .alert { border:2px solid var(--warn); background:#fff5f4; color:var(--warn); border-radius:8px; padding:10px 12px; font-size:15px; font-weight:bold; margin:4px 0 10px; }
 </style>
@@ -42,6 +43,7 @@
     <input id="p1" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
     <label for="p2">確認のため、もう一度</label>
     <input id="p2" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+    <button type="button" class="eye" data-for="p1,p2">パスワードを表示</button>
     <p class="err" id="setErr"></p>
     <button type="submit" id="setBtn">このパスワードにする</button>
     <p class="muted">パスワードは忘れないよう、メモやスクリーンショットで残しておいてください。</p>
@@ -51,6 +53,7 @@
   <form id="vLogin" class="hide">
     <p>決めたパスワードを入れてください。</p>
     <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+    <button type="button" class="eye" data-for="pin">パスワードを表示</button>
     <p class="err" id="loginErr"></p>
     <button type="submit" id="loginBtn">受け取る</button>
     <p class="muted">パスワードを忘れたときは、ブースの係の人に声をかけてください。</p>
@@ -115,6 +118,12 @@ async function start() {
   view('vLogin');
 }
 $('reloadBtn').onclick = () => { view('loading'); start(); };
+// 「パスワードを表示」：押すと 4 けたが見え、もう一度押すと隠す
+document.querySelectorAll('button.eye').forEach(b => b.onclick = () => {
+  const ids = b.dataset.for.split(','), show = $(ids[0]).type === 'password';
+  ids.forEach(id => { $(id).type = show ? 'text' : 'password'; });
+  b.textContent = show ? 'パスワードを隠す' : 'パスワードを表示';
+});
 
 // ---- パスワードを決める
 $('vSet').onsubmit = async e => {
