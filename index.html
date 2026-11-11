@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>記念号外の受け取り</title>
+<style>
+  :root { --blue:#1a56b8; --line:#d0d4da; --muted:#666; --warn:#b3261e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif; color:#111; background:#fff; line-height:1.7; }
+  main { max-width:520px; margin:0 auto; padding:24px 18px 40px; }
+  h1 { font-size:22px; margin:0 0 16px; }
+  p { margin:0 0 12px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .err { color:var(--warn); font-weight:bold; min-height:1.7em; }
+  label { display:block; font-weight:bold; margin:14px 0 6px; }
+  input { width:100%; font-size:28px; letter-spacing:12px; text-align:center; padding:10px; border:1px solid var(--line); border-radius:8px; }
+  button { width:100%; font:inherit; font-size:17px; font-weight:bold; padding:14px; margin-top:12px; border-radius:8px; border:1px solid var(--blue); background:var(--blue); color:#fff; }
+  button.sub { background:#fff; color:var(--blue); }
+  button:disabled { opacity:.5; }
+  img.preview { width:100%; border:1px solid var(--line); margin:8px 0 4px; }
+  .box { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:18px; font-size:14px; }
+  .hide { display:none; }
+  a.dl { display:block; text-align:center; margin-top:8px; font-size:15px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>記念号外の受け取り</h1>
+  <div id="loading"><p>読み込み中…</p></div>
+
+  <!-- メッセージだけの画面 -->
+  <div id="vMsg" class="hide"><p id="msgText"></p><button class="sub hide" id="reloadBtn">もう一度確認する</button></div>
+
+  <!-- パスワードを決める -->
+  <form id="vSet" class="hide">
+    <p>写真を受け取るための <b>4けたのパスワード</b> を決めてください。<br>撮影のあと、このパスワードで受け取ります。</p>
+    <label for="p1">パスワード（4けたの数字）</label>
+    <input id="p1" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+    <label for="p2">確認のため、もう一度</label>
+    <input id="p2" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+    <p class="err" id="setErr"></p>
+    <button type="submit" id="setBtn">このパスワードにする</button>
+    <p class="muted">パスワードは忘れないよう、メモやスクリーンショットで残しておいてください。</p>
+  </form>
+
+  <!-- パスワードを入れて受け取る -->
+  <form id="vLogin" class="hide">
+    <p>決めたパスワードを入れてください。</p>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+    <p class="err" id="loginErr"></p>
+    <button type="submit" id="loginBtn">受け取る</button>
+    <p class="muted">パスワードを忘れたときは、ブースの係の人に声をかけてください。</p>
+  </form>
+
+  <!-- 保存 -->
+  <div id="vGet" class="hide">
+    <p><b>No.<span id="num"></span></b> の記念号外です。</p>
+    <img class="preview" id="pv" alt="記念号外">
+    <button id="saveJpg">写真として保存</button>
+    <a class="dl" id="dlJpg" href="#">うまくいかないときは、ここからダウンロード</a>
+    <button id="savePdf" class="sub">PDFとして保存</button>
+    <a class="dl" id="dlPdf" href="#">うまくいかないときは、ここからダウンロード</a>
+    <div class="box">
+      <b>保存のしかた</b><br>
+      iPhone：「写真として保存」→「画像を保存」で写真アプリへ。PDF は「"ファイル"に保存」でファイルアプリへ。<br>
+      Android：表示されたメニューから保存先を選んでください。「ダウンロード」でも保存できます。
+    </div>
+    <p class="muted" id="expText" style="margin-top:14px"></p>
+  </div>
+
+  <p class="muted" style="margin-top:28px">これは記念の号外です。写真データは受け取り期間が終わったあとに削除します。</p>
+</main>
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbxEXdciDqjAdCKejwzieDS-Kr9vQhJfnj9bFHYJvaiZ4l_6sLswEwwepLQcY9aY0AF9/exec';
+const $ = id => document.getElementById(id);
+const token = new URLSearchParams(location.search).get('t') || '';
+let PIN = '', files = {}, info = null;
+
+function view(id) {
+  ['loading', 'vMsg', 'vSet', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
+}
+function message(t, reload) { $('msgText').innerHTML = t; $('reloadBtn').classList.toggle('hide', !reload); view('vMsg'); }
+async function call(body) {
+  const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ token }, body)) });
+  return r.json();
+}
+function fmt(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function b64toFile(b64, name, mime) {
+  const bin = atob(b64), arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new File([arr], name, { type: mime });
+}
+
+async function start() {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return message('カードのQRコードをもう一度読み取ってください。');
+  try { info = await call({ action: 'info' }); }
+  catch (e) { return message('通信できませんでした。電波のよいところで、もう一度読み取ってください。', true); }
+  if (info.state === 'invalid') return message('このQRコードは使えません。カードのQRコードをもう一度読み取ってください。');
+  if (info.state === 'expired') return message('受け取り期間が終わりました。');
+  if (info.state === 'need_pin') return view('vSet');
+  if (!info.ready) return message('写真はまだできていません。<br>少し待ってから、もう一度確認してください。<br><br>5分ほどたっても受け取れないときは、ブースの係の人に声をかけてください。', true);
+  view('vLogin');
+}
+$('reloadBtn').onclick = () => { view('loading'); start(); };
+
+// ---- パスワードを決める
+$('vSet').onsubmit = async e => {
+  e.preventDefault();
+  const a = $('p1').value, b = $('p2').value;
+  if (!/^\d{4}$/.test(a)) return $('setErr').textContent = '4けたの数字を入れてください。';
+  if (a !== b) return $('setErr').textContent = '2回の入力がちがいます。もう一度入れてください。';
+  $('setBtn').disabled = true; $('setErr').textContent = '';
+  try {
+    const j = await call({ action: 'setpin', pin: a });
+    if (!j.ok && j.error !== 'already') { $('setErr').textContent = '設定できませんでした。もう一度お試しください。'; return; }
+    if (j.error === 'already') return message('パスワードはすでに設定されています。撮影のあと、このQRコードをもう一度読み取ってください。');
+    info = await call({ action: 'info' });
+    if (info.ready) { message('パスワードを設定しました。'); setTimeout(() => view('vLogin'), 1200); return; }
+    message('パスワードを設定しました！<br><br>撮影ブースで、係の人にカードを渡してください。<br>写真ができたら、もう一度このQRコードを読み取り、決めたパスワードを入れて受け取ります。');
+  } catch (err) { $('setErr').textContent = '通信できませんでした。もう一度お試しください。'; }
+  finally { $('setBtn').disabled = false; }
+};
+
+// ---- パスワードを入れて受け取る
+function errText(j) {
+  if (j.error === 'wrong') return `パスワードがちがいます（あと ${j.remaining} 回まで）。`;
+  if (j.error === 'locked') return `まちがいが続いたため、${fmt(j.until)} まで入力できません。わからないときは係の人に声をかけてください。`;
+  if (j.error === 'not_ready') return '写真はまだできていません。少し待ってからお試しください。';
+  if (j.error === 'need_pin') return 'パスワードがまだ設定されていません。';
+  return '受け取れませんでした。もう一度お試しください。';
+}
+$('vLogin').onsubmit = async e => {
+  e.preventDefault();
+  const pin = $('pin').value;
+  if (!/^\d{4}$/.test(pin)) return $('loginErr').textContent = '4けたの数字を入れてください。';
+  $('loginBtn').disabled = true; $('loginErr').textContent = '受け取っています…';
+  try {
+    const j = await call({ action: 'get', pin, kind: 'jpg' });
+    if (!j.ok) { $('loginErr').textContent = errText(j); return; }
+    PIN = pin;
+    files.jpg = b64toFile(j.data, j.name, j.mime);
+    $('num').textContent = j.number;
+    $('pv').src = URL.createObjectURL(files.jpg);
+    $('dlJpg').href = $('pv').src; $('dlJpg').download = j.name;
+    if (info && info.expires) $('expText').textContent = `受け取りは ${fmt(info.expires)} まで、何回でもできます。`;
+    view('vGet');
+    loadPdf();   // 押したときにすぐ保存できるよう、先に読み込んでおく
+  } catch (err) { $('loginErr').textContent = '通信できませんでした。もう一度お試しください。'; }
+  finally { $('loginBtn').disabled = false; }
+};
+async function loadPdf() {
+  $('savePdf').disabled = true; $('savePdf').textContent = 'PDFを準備中…';
+  try {
+    const j = await call({ action: 'get', pin: PIN, kind: 'pdf' });
+    if (!j.ok) throw new Error(j.error);
+    files.pdf = b64toFile(j.data, j.name, j.mime);
+    $('dlPdf').href = URL.createObjectURL(files.pdf); $('dlPdf').download = j.name;
+    $('savePdf').textContent = 'PDFとして保存'; $('savePdf').disabled = false;
+  } catch (e) { $('savePdf').textContent = 'PDFを読み込めませんでした（下のリンクをお試しください）'; }
+}
+
+// ---- 保存（共有メニュー → 写真アプリ／ファイルアプリ。使えない端末はダウンロード）
+async function save(kind) {
+  const f = files[kind]; if (!f) return;
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f] }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = kind === 'jpg' ? $('dlJpg') : $('dlPdf');
+  a.click();
+}
+$('saveJpg').onclick = () => save('jpg');
+$('savePdf').onclick = () => save('pdf');
+
+start();
+</script>
+</body>
+</html>
