@@ -23,6 +23,7 @@
   .box { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-top:18px; font-size:14px; }
   .hide { display:none; }
   a.dl { display:block; text-align:center; margin-top:8px; font-size:15px; }
+  .alert { border:2px solid var(--warn); background:#fff5f4; color:var(--warn); border-radius:8px; padding:10px 12px; font-size:15px; font-weight:bold; margin:4px 0 10px; }
 </style>
 </head>
 <body>
@@ -57,6 +58,7 @@
   <!-- 保存 -->
   <div id="vGet" class="hide">
     <p><b>No.<span id="num"></span></b> の記念号外です。</p>
+    <div class="alert">ご自身の写真でない場合は、保存せずに、すぐにブースの係の人に声をかけてください。</div>
     <img class="preview" id="pv" alt="記念号外">
     <button id="saveJpg">写真として保存</button>
     <a class="dl" id="dlJpg" href="#">うまくいかないときは、ここからダウンロード</a>
@@ -103,7 +105,7 @@ async function start() {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return message('カードのQRコードをもう一度読み取ってください。');
   try { info = await call({ action: 'info' }); }
   catch (e) { return message('通信できませんでした。電波のよいところで、もう一度読み取ってください。', true); }
-  if (info.state === 'invalid') return message('このQRコードは使えません。カードのQRコードをもう一度読み取ってください。');
+  if (info.state === 'invalid') return message('このQRコードは使えません。<br>わからないときは、ブースの係の人に声をかけてください。');
   if (info.state === 'expired') return message('受け取り期間が終わりました。');
   if (info.state === 'need_pin') return view('vSet');
   if (!info.ready) return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
@@ -168,10 +170,13 @@ async function loadPdf() {
 }
 
 // ---- 保存（共有メニュー → 写真アプリ／ファイルアプリ。使えない端末はダウンロード）
+function report(kind) {   // 保存した回数を記録（失敗しても保存には関係しない）
+  call({ action: 'saved', pin: PIN, kind }).catch(() => {});
+}
 async function save(kind) {
   const f = files[kind]; if (!f) return;
   if (navigator.canShare && navigator.canShare({ files: [f] })) {
-    try { await navigator.share({ files: [f] }); return; }
+    try { await navigator.share({ files: [f] }); report(kind); return; }
     catch (e) { if (e.name === 'AbortError') return; }
   }
   const a = kind === 'jpg' ? $('dlJpg') : $('dlPdf');
@@ -179,6 +184,8 @@ async function save(kind) {
 }
 $('saveJpg').onclick = () => save('jpg');
 $('savePdf').onclick = () => save('pdf');
+$('dlJpg').addEventListener('click', () => { if (files.jpg) report('jpg'); });
+$('dlPdf').addEventListener('click', () => { if (files.pdf) report('pdf'); });
 
 start();
 </script>
