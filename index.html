@@ -81,7 +81,10 @@ let PIN = '', files = {}, info = null;
 function view(id) {
   ['loading', 'vMsg', 'vSet', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
 }
-function message(t, reload) { $('msgText').innerHTML = t; $('reloadBtn').classList.toggle('hide', !reload); view('vMsg'); }
+function message(t, reload, label) {
+  $('msgText').innerHTML = t; $('reloadBtn').textContent = label || 'もう一度確認する';
+  $('reloadBtn').classList.toggle('hide', !reload); view('vMsg');
+}
 async function call(body) {
   const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ token }, body)) });
   return r.json();
@@ -103,7 +106,7 @@ async function start() {
   if (info.state === 'invalid') return message('このQRコードは使えません。カードのQRコードをもう一度読み取ってください。');
   if (info.state === 'expired') return message('受け取り期間が終わりました。');
   if (info.state === 'need_pin') return view('vSet');
-  if (!info.ready) return message('写真はまだできていません。<br>少し待ってから、もう一度確認してください。<br><br>5分ほどたっても受け取れないときは、ブースの係の人に声をかけてください。', true);
+  if (!info.ready) return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
   view('vLogin');
 }
 $('reloadBtn').onclick = () => { view('loading'); start(); };
@@ -118,7 +121,7 @@ $('vSet').onsubmit = async e => {
   try {
     const j = await call({ action: 'setpin', pin: a });
     if (!j.ok && j.error !== 'already') { $('setErr').textContent = '設定できませんでした。もう一度お試しください。'; return; }
-    if (j.error === 'already') return message('パスワードはすでに設定されています。撮影のあと、このQRコードをもう一度読み取ってください。');
+    if (j.error === 'already') return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
     info = await call({ action: 'info' });
     if (info.ready) { message('パスワードを設定しました。'); setTimeout(() => view('vLogin'), 1200); return; }
     message('パスワードを設定しました！<br><br>撮影ブースで、係の人にカードを渡してください。<br>写真ができたら、もう一度このQRコードを読み取り、決めたパスワードを入れて受け取ります。');
