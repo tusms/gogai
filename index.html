@@ -158,6 +158,9 @@ function errText(j) {
   if (j.error === 'need_pin') return 'パスワードがまだ設定されていません。';
   return '受け取れませんでした。もう一度お試しください。';
 }
+// まちがえたあと、入力欄をタップ（または入力しはじめ）したら空にして、1 けた目から入れ直せるようにする
+function clearStale() { const el = $('pin'); if (el.dataset.stale) { el.value = ''; delete el.dataset.stale; } }
+['focus', 'click', 'beforeinput'].forEach(ev => $('pin').addEventListener(ev, clearStale));
 $('vLogin').onsubmit = async e => {
   e.preventDefault();
   const pin = $('pin').value;
@@ -167,7 +170,7 @@ $('vLogin').onsubmit = async e => {
     const j = await call({ action: 'get', pin, kind: 'jpg' });
     if (!j.ok) {
       if (j.error === 'blocked') return message(BLOCKED);
-      $('loginErr').innerHTML = errText(j); return;
+      $('loginErr').innerHTML = errText(j); $('pin').dataset.stale = '1'; return;
     }
     PIN = pin;
     files.jpg = b64toFile(j.data, j.name, j.mime);
