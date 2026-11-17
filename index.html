@@ -55,6 +55,10 @@
   .opt.sel::before { border-color:var(--blue); background:radial-gradient(circle, var(--blue) 0 5px, #fff 6px); }
   .opt small { display:block; font-size:12px; font-weight:normal; color:var(--muted); letter-spacing:0; }
   .now { border-left:4px solid #111; padding:4px 10px; font-weight:900; margin:4px 0 12px; }
+  /* タイトルの保存状況（保存は裏で進めるので、画面はすぐ先へ進む） */
+  #saveState { font-size:14px; font-weight:bold; margin:-4px 0 8px; }
+  #saveState.saving { color:var(--muted); } #saveState.ok { color:#1e7a34; } #saveState.fail { color:var(--warn); }
+  .dots::after { content:""; display:inline-block; width:1.5em; text-align:left; animation:dots 1.2s steps(4) infinite; }
 </style>
 </head>
 <body>
@@ -71,7 +75,7 @@
   </div>
 
   <!-- メッセージだけの画面 -->
-  <div id="vMsg" class="hide"><p id="msgText"></p><button class="sub hide" id="reloadBtn">もう一度確認する</button>
+  <div id="vMsg" class="hide"><p id="msgText"></p><p id="saveState" class="hide"></p><button class="sub hide" id="reloadBtn">もう一度確認する</button>
     <button class="sub hide" id="toTitleBtn">タイトルを選ぶ</button></div>
 
   <!-- パスワードを決める -->
@@ -145,6 +149,7 @@ function message(t, reload, label, titleLabel) {
   $('msgText').innerHTML = t; $('reloadBtn').textContent = label || 'もう一度確認する';
   $('reloadBtn').classList.toggle('hide', !reload);
   $('toTitleBtn').textContent = titleLabel || ''; $('toTitleBtn').classList.toggle('hide', !titleLabel);
+  $('saveState').className = 'hide'; $('reloadBtn').disabled = $('toTitleBtn').disabled = false;
   view('vMsg');
 }
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -172,7 +177,9 @@ async function call(body, timeout) {
   for (;;) {
     const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), Math.max(Math.min(per, end - Date.now()), 1000));
     try {
-      const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ token }, body)), signal: ctl.signal });
+      // keepalive … 画面を閉じたり別のアプリに切り替えたりしても、送った内容は最後まで届くようにする（写真の受け取りは除く）
+      const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ token }, body)), signal: ctl.signal,
+                                   keepalive: body.action !== 'get' });
       const text = await r.text();
       let j = null;
       try { j = JSON.parse(text); } catch (e) { /* 混雑時は Google のエラーページが返ってくる */ }
@@ -233,7 +240,20 @@ $('vSet').onsubmit = async e => {
   $('setErr').textContent = '';
   setPin(a);
 };
-async function setPin(a) {
+// 号外のタイトルを選ぶ場合は、パスワードの設定を「裏で」進めて、すぐにタイトルを選ぶ画面に進む（待ち時間を感じさせない）
+let pinJob = null;
+function setPin(a) {
+  if (!HEADS().length) return setPinWait(a);
+  PIN = a;
+  pinJob = call({ action: 'setpin', pin: a }).then(j => {
+    if (!j.ok && j.error !== 'already') { pinFail('設定できませんでした。もう一度「このパスワードにする」を押してください。'); return false; }
+    if (j.ready) { pinJob = null; message('パスワードを設定しました。'); setTimeout(() => view('vLogin'), 1200); return false; }
+    return true;   // 'already' … 1 回目の通信で設定できていた（返事だけが届かなかった）場合も、ここに来る
+  }, () => { pinFail('通信がうまくいきませんでした。電波のよいところで、もう一度「このパスワードにする」を押してください。'); return false; });
+  showTitle(true);
+}
+function pinFail(t) { pinJob = null; PIN = ''; view('vSet'); $('setErr').textContent = t; }
+async function setPinWait(a) {
   loading('パスワードを設定しています');
   try {
     const j = await call({ action: 'setpin', pin: a });
@@ -243,7 +263,7 @@ async function setPin(a) {
     PIN = a;
     if (HEADS().length) return showTitle(true);   // つづけて、号外のタイトルを選んでもらう
     message('パスワードを設定しました！<br><br>撮影ブースで、係の人にカードを渡してください。<br>写真ができたら、もう一度このQRコードを読み取るか、下のボタンを押して、決めたパスワードを入れて受け取ります。', true, '撮影が終わったら、ここを押して受け取る');
-  } catch (err) { showRetry(() => setPin(a)); }
+  } catch (err) { showRetry(() => setPinWait(a)); }
 }
 
 // ---- 号外のタイトル（見出し）を選ぶ（撮影の前なら、何回でも変えられる）
@@ -273,7 +293,41 @@ $('vTitle').onsubmit = e => {
   if (!/^\d{4}$/.test(pin)) return $('titleErr').textContent = 'パスワード（4けたの数字）を入れてください。';
   choose(pick, pin);
 };
+// この画面でパスワードを決めたばかりのとき（パスワードがまちがっている心配がない）は、
+// 返事を待たずに「決めました」の画面に進み、保存は裏で進める。保存の状況は画面に小さく出す
+let saving = 0;
+function setSaveState(st, retry) {
+  const el = $('saveState');
+  el.className = st;
+  el.innerHTML = st === 'saving' ? '<span class="dots">タイトルを保存しています</span>' :
+                 st === 'ok' ? '✓ タイトルを保存しました' :
+                 '保存できませんでした。電波のよいところで、下のボタンを押してください。<button type="button" id="saveRetry">もう一度保存する</button>';
+  $('reloadBtn').disabled = $('toTitleBtn').disabled = st === 'saving';
+  if (retry) $('saveRetry').onclick = retry;
+}
+async function chooseFast(i, pin) {
+  const prev = info.hl, my = ++saving;
+  info.hl = i;
+  waitMessage('タイトルを決めました！<br><br>'); setSaveState('saving');
+  try {
+    if (pinJob && !(await pinJob)) { info.hl = prev; return; }   // パスワードの設定に失敗した（画面はもう戻してある）
+    pinJob = null;
+    const j = await call({ action: 'choose', hl: i, pin }, 20000);
+    if (my !== saving) return;
+    if (j.ok) return setSaveState('ok');
+    info.hl = prev;
+    if (j.error === 'blocked') return message(BLOCKED);
+    if (j.error === 'shot') return message('撮影が終わっているため、タイトルは変えられません。<br>下のボタンを押して、写真を受け取ってください。', true, '写真を受け取る');
+    if (j.error === 'need_pin') return start();
+    PIN = ''; showTitle(false); $('titleErr').innerHTML = errText(j); $('tpin').dataset.stale = '1';
+  } catch (err) {
+    if (my !== saving) return;
+    info.hl = prev; waitMessage('');
+    setSaveState('fail', () => chooseFast(i, pin));
+  }
+}
 async function choose(i, pin) {
+  if (PIN && pin === PIN) return chooseFast(i, pin);
   loading('タイトルを決めています');
   try {
     const j = await call({ action: 'choose', hl: i, pin });
