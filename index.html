@@ -44,6 +44,17 @@
   #loadText::after { content:""; display:inline-block; width:1.5em; text-align:left; animation:dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content:"" } 25% { content:"." } 50% { content:".." } 75% { content:"..." } }
   #loadRetry p { margin:0 0 4px; }
+  /* タイトル（見出し）を選ぶ：新聞の見出しのように見せる */
+  .opts { margin:6px 0 4px; }
+  .opt { display:block; width:100%; text-align:left; margin:0 0 10px; padding:14px 10px 14px 44px; position:relative;
+         background:#fff; color:#111; border:2px solid var(--line); border-radius:10px; font-size:min(18px, 4.6vw); font-weight:900;
+         line-height:1.4; }
+  .opt::before { content:""; position:absolute; left:14px; top:50%; width:20px; height:20px; margin-top:-10px;
+                 border:2px solid #9aa3ad; border-radius:50%; background:#fff; }
+  .opt.sel { border-color:var(--blue); background:#eef4fd; }
+  .opt.sel::before { border-color:var(--blue); background:radial-gradient(circle, var(--blue) 0 5px, #fff 6px); }
+  .opt small { display:block; font-size:12px; font-weight:normal; color:var(--muted); letter-spacing:0; }
+  .now { border-left:4px solid #111; padding:4px 10px; font-weight:900; margin:4px 0 12px; }
 </style>
 </head>
 <body>
@@ -60,7 +71,8 @@
   </div>
 
   <!-- メッセージだけの画面 -->
-  <div id="vMsg" class="hide"><p id="msgText"></p><button class="sub hide" id="reloadBtn">もう一度確認する</button></div>
+  <div id="vMsg" class="hide"><p id="msgText"></p><button class="sub hide" id="reloadBtn">もう一度確認する</button>
+    <button class="sub hide" id="toTitleBtn">タイトルを選ぶ</button></div>
 
   <!-- パスワードを決める -->
   <form id="vSet" class="hide">
@@ -73,6 +85,20 @@
     <p class="err" id="setErr"></p>
     <button type="submit" id="setBtn">このパスワードにする</button>
     <p class="muted">パスワードは忘れないよう、メモやスクリーンショットで残しておいてください。</p>
+  </form>
+
+  <!-- 号外のタイトル（見出し）を選ぶ -->
+  <form id="vTitle" class="hide">
+    <p id="titleLead"><b>号外のタイトル（見出し）</b> を選んでください。<br>あなたの写真の上に、大きくのります。</p>
+    <div class="opts" id="opts"></div>
+    <div id="titlePinBox" class="hide">
+      <label for="tpin">決めたパスワード（4けた）</label>
+      <input id="tpin" type="password" inputmode="numeric" autocomplete="off" maxlength="4" pattern="[0-9]*">
+      <button type="button" class="eye" data-for="tpin">パスワードを表示</button>
+    </div>
+    <p class="err" id="titleErr"></p>
+    <button type="submit" id="titleBtn">このタイトルにする</button>
+    <p class="muted">撮影の前なら、あとから変えることもできます。</p>
   </form>
 
   <!-- パスワードを入れて受け取る -->
@@ -112,11 +138,25 @@ const token = new URLSearchParams(location.search).get('t') || '';
 let PIN = '', files = {}, info = null;
 
 function view(id) {
-  ['loading', 'vMsg', 'vSet', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
+  ['loading', 'vMsg', 'vSet', 'vTitle', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
+  window.scrollTo(0, 0);
 }
-function message(t, reload, label) {
+function message(t, reload, label, titleLabel) {
   $('msgText').innerHTML = t; $('reloadBtn').textContent = label || 'もう一度確認する';
-  $('reloadBtn').classList.toggle('hide', !reload); view('vMsg');
+  $('reloadBtn').classList.toggle('hide', !reload);
+  $('toTitleBtn').textContent = titleLabel || ''; $('toTitleBtn').classList.toggle('hide', !titleLabel);
+  view('vMsg');
+}
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const HEADS = () => (info && info.headlines) || [];
+function chosen() { return info && info.hl != null && HEADS()[info.hl] != null ? HEADS()[info.hl] : null; }
+// パスワード設定ずみ・撮影まだ のときの画面（選んだタイトルも見せる）
+const WAIT_TEXT = '記念号外の撮影をご希望の方は、フォトブースへお越しください。<br>撮影ブースで、係の人にカードを渡してください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。';
+function waitMessage(head) {
+  const c = chosen(), has = HEADS().length > 0;
+  const t = (has ? (c ? `選んだタイトル：<div class="now">${esc(c)}</div>` : '<b>まだタイトルを選んでいません。</b>下のボタンから選んでください。<br><br>') : '');
+  message(head + t + WAIT_TEXT, true, '撮影が終わったら、ここを押して受け取る',
+          has ? (c ? 'タイトルを変える' : 'タイトルを選ぶ') : '');
 }
 // 通信は最大 15 秒まで待つ。それを過ぎたら「もう一度読み込む」ボタンを出す。
 // 混雑などで一時的に失敗したときは、15 秒の中で自動的にやり直す（待つ時間を人ごとに少しずらして、一斉にやり直さないようにする）
@@ -173,7 +213,7 @@ async function start() {
   if (info.state === 'expired') return message('受け取り期間が終わりました。');
   if (info.state === 'need_pin') return view('vSet');
   if (info.blocked) return message(BLOCKED);
-  if (!info.ready) return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
+  if (!info.ready) return waitMessage('パスワードは設定済みです。<br><br>');
   view('vLogin');
 }
 $('reloadBtn').onclick = () => start();
@@ -198,10 +238,55 @@ async function setPin(a) {
   try {
     const j = await call({ action: 'setpin', pin: a });
     if (!j.ok && j.error !== 'already') { view('vSet'); $('setErr').textContent = '設定できませんでした。もう一度お試しください。'; return; }
-    if (j.error === 'already') return message('パスワードは設定済みです。<br><br>記念号外の撮影をご希望の方は、フォトブースへお越しください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。', true, '撮影が終わったら、ここを押して受け取る');
+    if (j.error === 'already') return waitMessage('パスワードは設定済みです。<br><br>');
     if (j.ready) { message('パスワードを設定しました。'); setTimeout(() => view('vLogin'), 1200); return; }
+    PIN = a;
+    if (HEADS().length) return showTitle(true);   // つづけて、号外のタイトルを選んでもらう
     message('パスワードを設定しました！<br><br>撮影ブースで、係の人にカードを渡してください。<br>写真ができたら、もう一度このQRコードを読み取るか、下のボタンを押して、決めたパスワードを入れて受け取ります。', true, '撮影が終わったら、ここを押して受け取る');
   } catch (err) { showRetry(() => setPin(a)); }
+}
+
+// ---- 号外のタイトル（見出し）を選ぶ（撮影の前なら、何回でも変えられる）
+let pick = null;
+function showTitle(justSet) {
+  pick = info && info.hl != null ? info.hl : null;
+  $('titleLead').innerHTML = (justSet ? 'パスワードを設定しました！<br>つづけて、' : '') +
+    '<b>号外のタイトル（見出し）</b> を選んでください。<br>あなたの写真の上に、大きくのります。';
+  $('opts').innerHTML = HEADS().map((h, i) =>
+    `<button type="button" class="opt${i === pick ? ' sel' : ''}" data-i="${i}">${esc(h)}${i === (info && info.hl) ? '<small>いま選んでいるタイトル</small>' : ''}</button>`).join('');
+  $('opts').querySelectorAll('.opt').forEach(b => b.onclick = () => {
+    pick = +b.dataset.i; $('titleErr').textContent = '';
+    $('opts').querySelectorAll('.opt').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  $('titlePinBox').classList.toggle('hide', !!PIN);   // パスワードが分からないとき（あとから変えるとき）だけ入れてもらう
+  $('tpin').value = ''; $('titleErr').textContent = '';
+  view('vTitle');
+}
+$('toTitleBtn').onclick = () => showTitle(false);
+['focus', 'click', 'beforeinput'].forEach(ev => $('tpin').addEventListener(ev, () => {
+  const el = $('tpin'); if (el.dataset.stale) { el.value = ''; delete el.dataset.stale; }
+}));
+$('vTitle').onsubmit = e => {
+  e.preventDefault();
+  if (pick == null) return $('titleErr').textContent = 'タイトルを1つ選んでください。';
+  const pin = PIN || $('tpin').value;
+  if (!/^\d{4}$/.test(pin)) return $('titleErr').textContent = 'パスワード（4けたの数字）を入れてください。';
+  choose(pick, pin);
+};
+async function choose(i, pin) {
+  loading('タイトルを決めています');
+  try {
+    const j = await call({ action: 'choose', hl: i, pin });
+    if (!j.ok) {
+      if (j.error === 'blocked') return message(BLOCKED);
+      if (j.error === 'shot') return message('撮影が終わっているため、タイトルは変えられません。<br>下のボタンを押して、写真を受け取ってください。', true, '写真を受け取る');
+      if (j.error === 'need_pin') return start();
+      PIN = ''; view('vTitle'); $('titlePinBox').classList.remove('hide');
+      $('titleErr').innerHTML = errText(j); $('tpin').dataset.stale = '1'; return;
+    }
+    PIN = pin; info.hl = j.hl;
+    waitMessage('タイトルを決めました！<br><br>');
+  } catch (err) { showRetry(() => choose(i, pin)); }
 }
 
 // ---- パスワードを入れて受け取る
