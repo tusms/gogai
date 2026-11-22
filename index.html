@@ -59,11 +59,20 @@
   #saveState { font-size:14px; font-weight:bold; margin:-4px 0 8px; }
   #saveState.saving { color:var(--muted); } #saveState.ok { color:#1e7a34; } #saveState.fail { color:var(--warn); }
   .dots::after { content:""; display:inline-block; width:1.5em; text-align:left; animation:dots 1.2s steps(4) infinite; }
+  /* スライム作りの呼び出し状況（スライム券つきカードのときだけ出す） */
+  .slime { border:2px solid #f0b86a; background:#fff8ee; border-radius:10px; padding:10px 14px 12px; margin:0 0 18px; font-size:15px; line-height:1.6; }
+  .slime.now { border-color:#e07b12; background:#ffefd9; }
+  .slime .sh { font-weight:900; color:#b85c00; font-size:14px; letter-spacing:.05em; }
+  .slime .sn { font-size:22px; font-weight:900; margin:2px 0; }
+  .slime.now .sn { color:#b85c00; }
+  .slime .st { font-size:12px; color:var(--muted); margin-top:4px; }
+  .slime button { width:auto; font-size:14px; font-weight:normal; padding:6px 14px; margin-top:8px; background:#fff; color:#b85c00; border-color:#e0a050; }
 </style>
 </head>
 <body>
 <main>
   <h1>記念号外の受け取り</h1>
+  <div id="slimeBox" class="slime hide"></div>
   <div id="loading">
     <div id="loadAnim"><div class="court"><div class="ball"><i></i><b></b></div><div class="shadow"></div></div>
       <p id="loadText">読み込み中</p></div>
@@ -211,11 +220,48 @@ function b64toFile(b64, name, mime) {
   return new File([arr], name, { type: mime });
 }
 
+// ---- スライム作りの呼び出し状況（スライム券つきカードのときだけ、画面の上に出す）
+let slimeAt = 0;
+function slimeHtml(sl) {
+  const n = `<b>${sl.n}</b> 番`;
+  if (sl.me === 'done') return { cls: '', body: `<div class="sn">体験済みです</div>スライム作りへのご参加、ありがとうございました。` };
+  if (sl.st === 'closed') return { cls: '', body: `あなたの番号：${n}<div class="sn">本日の受付は終了しました</div>ご不明な点は、係の人にお声がけください。` };
+  if (sl.me === 'now') return { cls: 'now', body: `<div class="sn">${sl.n} 番、お呼び出し中です！</div>スライム作りのコーナーへお越しください。` };
+  if (sl.me === 'missed') return { cls: 'now', body: `<div class="sn">${sl.n} 番は、お呼びしました</div>スライム作りのコーナーで、係の人にカードを見せてください。次の回にご案内します。` };
+  if (sl.st === 'before' || !sl.upto) return { cls: '', body: `あなたの番号：${n}<div class="sn">まだ呼び出しは始まっていません</div>番号順にお呼びします。` };
+  return { cls: '', body: `あなたの番号：${n}<div class="sn">いま ${sl.upto} 番までお呼び出し中</div>` +
+    (sl.ahead < (sl.cap || 10) ? '次の回でお呼びする予定です。' : `あなたの前に、あと約 ${sl.ahead} 人です。`) +
+    '呼ばれたら、スライム作りのコーナーへお越しください。' };
+}
+function showSlime() {
+  const sl = info && info.slime, box = $('slimeBox');
+  if (!sl) { box.classList.add('hide'); return; }
+  const h = slimeHtml(sl);
+  const t = sl.ts ? new Date(sl.ts) : null;
+  const hint = info.state === 'need_pin' && sl.me !== 'done' ? '<br><span class="st">呼び出し状況を見るだけなら、パスワードの設定はいりません。</span>' : '';
+  box.className = 'slime ' + h.cls;
+  box.innerHTML = `<div class="sh">スライム作り（こども 1 人 1 回）</div>${h.body}${hint}` +
+    (sl.me === 'done' || sl.st === 'closed' ? '' : `<br><button type="button" id="slimeBtn">最新の状況にする</button>`) +
+    (t ? `<div class="st">${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')} 時点</div>` : '');
+  const b = $('slimeBtn');
+  if (b) b.onclick = refreshSlime;
+}
+async function refreshSlime() {
+  const b = $('slimeBtn');
+  if (Date.now() - slimeAt < 10000) { if (b) b.textContent = '少し待ってから押してください'; return; }   // 押しすぎ防止
+  slimeAt = Date.now();
+  if (b) { b.disabled = true; b.textContent = '確認しています…'; }
+  try { const j = await call({ action: 'info' }); if (j && j.slime !== undefined) info.slime = j.slime; }
+  catch (e) { /* つながらないときは、前の表示のまま */ }
+  showSlime();
+}
+
 async function start() {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return message('カードのQRコードをもう一度読み取ってください。');
   loading('読み込み中');
   try { info = await call({ action: 'info' }); }
   catch (e) { return showRetry(start); }
+  slimeAt = Date.now(); showSlime();
   if (info.state === 'invalid') return message('このQRコードは使用できません。<br>ご不明な点は、ブースの係の人にお申し付けください。');
   if (info.state === 'expired') return message('受け取り期間が終わりました。');
   if (info.state === 'need_pin') return view('vSet');
