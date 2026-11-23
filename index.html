@@ -55,6 +55,17 @@
   .opt.sel::before { border-color:var(--blue); background:radial-gradient(circle, var(--blue) 0 5px, #fff 6px); }
   .opt small { display:block; font-size:12px; font-weight:normal; color:var(--muted); letter-spacing:0; }
   .now { border-left:4px solid #111; padding:4px 10px; font-weight:900; margin:4px 0 12px; }
+  /* 背景を選ぶ・完成イメージ */
+  .bgopts { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0 4px; }
+  .bgopt { margin:0; padding:4px 4px 8px; background:#fff; color:#111; border:2px solid var(--line); border-radius:10px; font-size:14px; font-weight:bold; position:relative; }
+  .bgopt img { display:block; width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:6px; background:#eee; margin-bottom:6px; }
+  .bgopt.sel { border:3px solid var(--blue); background:#eef4fd; padding:3px 3px 7px; }
+  .bgopt.sel::after { content:"✓"; position:absolute; top:8px; right:8px; width:26px; height:26px; line-height:26px; border-radius:50%; background:var(--blue); color:#fff; font-size:16px; }
+  .bgopt small { display:block; font-size:11px; font-weight:normal; color:var(--muted); }
+  #pvWrap { position:relative; margin:8px 0 2px; }
+  #pvCanvas { display:block; width:100%; border:1px solid var(--line); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.12); background:#fff; }
+  .pvnote { font-size:13px; color:var(--muted); margin:6px 0 0; }
+  .chosenPv { display:block; width:62%; margin:6px 0 12px; border:1px solid var(--line); border-radius:4px; }
   /* タイトルの保存状況（保存は裏で進めるので、画面はすぐ先へ進む） */
   #saveState { font-size:14px; font-weight:bold; margin:-4px 0 8px; }
   #saveState.saving { color:var(--muted); } #saveState.ok { color:#1e7a34; } #saveState.fail { color:var(--warn); }
@@ -114,6 +125,26 @@
     <p class="muted">撮影の前なら、あとから変えることもできます。</p>
   </form>
 
+  <!-- 背景を選ぶ -->
+  <form id="vBg" class="hide">
+    <p><b>写真の背景</b> を選んでください。<br>撮影した写真から、あなたを切り抜いて重ねます。</p>
+    <div class="bgopts" id="bgopts"></div>
+    <p class="err" id="bgErr"></p>
+    <button type="submit" id="bgBtn">この背景にする</button>
+    <button type="button" class="sub" id="bgBackBtn">タイトルを選び直す</button>
+  </form>
+
+  <!-- 完成イメージ -->
+  <div id="vPrev" class="hide">
+    <p><b>完成イメージ</b>です。この組み合わせでよければ「決める」を押してください。</p>
+    <div id="pvWrap"><canvas id="pvCanvas" width="640" height="905"></canvas></div>
+    <p class="pvnote">人の部分はイメージです。撮影すると、ここにあなたが入ります。</p>
+    <p class="err" id="pvErr"></p>
+    <button type="button" id="pvOk">この組み合わせで決める</button>
+    <button type="button" class="sub" id="pvTitle">タイトルを選び直す</button>
+    <button type="button" class="sub" id="pvBg">背景を選び直す</button>
+  </div>
+
   <!-- パスワードを入れて受け取る -->
   <form id="vLogin" class="hide">
     <p>決めたパスワードを入れてください。</p>
@@ -151,7 +182,7 @@ const token = new URLSearchParams(location.search).get('t') || '';
 let PIN = '', files = {}, info = null;
 
 function view(id) {
-  ['loading', 'vMsg', 'vSet', 'vTitle', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
+  ['loading', 'vMsg', 'vSet', 'vTitle', 'vBg', 'vPrev', 'vLogin', 'vGet'].forEach(v => $(v).classList.toggle('hide', v !== id));
   window.scrollTo(0, 0);
 }
 function message(t, reload, label, titleLabel) {
@@ -164,13 +195,24 @@ function message(t, reload, label, titleLabel) {
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const HEADS = () => (info && info.headlines) || [];
 function chosen() { return info && info.hl != null && HEADS()[info.hl] != null ? HEADS()[info.hl] : null; }
+const BGS = () => (info && info.backgrounds) || [];
+const bgOf = id => BGS().find(b => String(b.id) === String(id)) || null;
+function chosenBg() { return info && info.bg != null ? bgOf(info.bg) : null; }
 // パスワード設定ずみ・撮影まだ のときの画面（選んだタイトルも見せる）
 const WAIT_TEXT = '記念号外の撮影をご希望の方は、フォトブースへお越しください。<br>撮影ブースで、係の人にカードを渡してください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。';
 function waitMessage(head) {
-  const c = chosen(), has = HEADS().length > 0;
-  const t = (has ? (c ? `選んだタイトル：<div class="now">${esc(c)}</div>` : '<b>まだタイトルを選んでいません。</b>下のボタンから選んでください。<br><br>') : '');
-  message(head + t + WAIT_TEXT, true, '撮影が終わったら、ここを押して受け取る',
-          has ? (c ? 'タイトルを変える' : 'タイトルを選ぶ') : '');
+  const c = chosen(), has = HEADS().length > 0, hasBg = BGS().length > 0, cb = chosenBg();
+  let t = has ? (c ? `選んだタイトル：<div class="now">${esc(c)}</div>` : '<b>まだタイトルを選んでいません。</b>下のボタンから選んでください。<br><br>') : '';
+  if (hasBg && c) t += cb ? `選んだ背景：<div class="now">${esc(cb.name)}</div>` : '<b>まだ背景を選んでいません。</b>下のボタンから選んでください。<br><br>';
+  if (hasBg && c && cb) {
+    t += `<img class="chosenPv${lastPv ? '' : ' hide'}" id="chosenPvImg" src="${lastPv}" alt="完成イメージ">`;
+    if (!lastPv) {   // ページを開き直したときは、完成イメージを作り直して出す
+      pick = info.hl; pickBg = String(info.bg);
+      drawPreview().then(() => { const im = $('chosenPvImg'); if (im && lastPv) { im.src = lastPv; im.classList.remove('hide'); } }).catch(() => {});
+    }
+  }
+  const label = !has ? '' : hasBg ? (c && cb ? 'タイトル・背景を変える' : 'タイトルと背景を選ぶ') : (c ? 'タイトルを変える' : 'タイトルを選ぶ');
+  message(head + t + WAIT_TEXT, true, '撮影が終わったら、ここを押して受け取る', label);
 }
 // 通信は最大 15 秒まで待つ。それを過ぎたら「もう一度読み込む」ボタンを出す。
 // 混雑などで一時的に失敗したときは、15 秒の中で自動的にやり直す（待つ時間を人ごとに少しずらして、一斉にやり直さないようにする）
@@ -314,8 +356,8 @@ async function setPinWait(a) {
 
 // ---- 号外のタイトル（見出し）を選ぶ（撮影の前なら、何回でも変えられる）
 let pick = null;
-function showTitle(justSet) {
-  pick = info && info.hl != null ? info.hl : null;
+function showTitle(justSet, keep) {
+  if (!keep) { pick = info && info.hl != null ? info.hl : null; pickBg = null; pendPin = ''; }
   $('titleLead').innerHTML = (justSet ? 'パスワードを設定しました！<br>つづけて、' : '') +
     '<b>号外のタイトル（見出し）</b> を選んでください。<br>あなたの写真の上に、大きくのります。';
   $('opts').innerHTML = HEADS().map((h, i) =>
@@ -325,7 +367,8 @@ function showTitle(justSet) {
     $('opts').querySelectorAll('.opt').forEach(x => x.classList.toggle('sel', x === b));
   });
   $('titlePinBox').classList.toggle('hide', !!PIN);   // パスワードが分からないとき（あとから変えるとき）だけ入れてもらう
-  $('tpin').value = ''; $('titleErr').textContent = '';
+  $('tpin').value = keep ? pendPin : ''; $('titleErr').textContent = '';
+  $('titleBtn').textContent = BGS().length ? 'このタイトルにして、背景を選ぶ' : 'このタイトルにする';
   view('vTitle');
 }
 $('toTitleBtn').onclick = () => showTitle(false);
@@ -337,56 +380,129 @@ $('vTitle').onsubmit = e => {
   if (pick == null) return $('titleErr').textContent = 'タイトルを1つ選んでください。';
   const pin = PIN || $('tpin').value;
   if (!/^\d{4}$/.test(pin)) return $('titleErr').textContent = 'パスワード（4けたの数字）を入れてください。';
-  choose(pick, pin);
+  if (BGS().length) { pendPin = pin; return showBg(); }   // つづけて背景を選ぶ（保存は最後にまとめて）
+  choose(pick, null, pin);
 };
+
+// ---- 背景を選ぶ → 完成イメージ → 決める（撮影の前なら、何回でも変えられる）
+let pickBg = null, pendPin = '', lastPv = '';
+const PV = () => (info && info.pv) || null;
+const asset = path => path + (PV() && PV().v ? '?v=' + PV().v : '');
+function showBg() {
+  if (pickBg == null && info && info.bg != null && bgOf(info.bg)) pickBg = String(info.bg);
+  $('bgopts').innerHTML = BGS().map(b =>
+    `<button type="button" class="bgopt${String(b.id) === pickBg ? ' sel' : ''}" data-id="${esc(b.id)}"><img src="${asset('bg/' + b.id + '.jpg')}" alt="" loading="lazy">${esc(b.name)}${String(b.id) === String(info && info.bg) ? '<small>いま選んでいる背景</small>' : ''}</button>`).join('');
+  $('bgopts').querySelectorAll('.bgopt').forEach(b => b.onclick = () => {
+    pickBg = b.dataset.id; $('bgErr').textContent = '';
+    $('bgopts').querySelectorAll('.bgopt').forEach(x => x.classList.toggle('sel', x === b));
+  });
+  $('bgErr').textContent = '';
+  view('vBg');
+}
+$('vBg').onsubmit = e => {
+  e.preventDefault();
+  if (pickBg == null) return $('bgErr').textContent = '背景を1つ選んでください。';
+  showPrev();
+};
+$('bgBackBtn').onclick = () => showTitle(false, true);
+function loadImg(src) {
+  return new Promise((ok, ng) => { const im = new Image(); im.onload = () => ok(im); im.onerror = ng; im.src = src; });
+}
+function today() {   // 日本時間の「月日」（例：0124）
+  const d = new Date(Date.now() + (9 * 60 + new Date().getTimezoneOffset()) * 60000);
+  return String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+}
+async function drawPreview() {
+  const cv = $('pvCanvas'), ctx = cv.getContext('2d'), pv = PV();
+  const day = pv && pv.days && pv.days.indexOf(today()) >= 0 ? today() : (pv && pv.fb);
+  let tpl = null, bg = null, sil = null;
+  try { bg = await loadImg(asset('bg/' + pickBg + '.jpg')); } catch (e) { /* 読み込めなければ灰色 */ }
+  try { sil = await loadImg(asset('sil.png')); } catch (e) { /* なくても進める */ }
+  if (pv && pv.box && pv.size && day) { try { tpl = await loadImg(asset(`tpl/${day}_${pick + 1}.jpg`)); } catch (e) { tpl = null; } }
+  let box;
+  if (tpl) {
+    cv.width = tpl.naturalWidth; cv.height = tpl.naturalHeight;
+    const k = cv.width / pv.size[0];
+    ctx.drawImage(tpl, 0, 0);
+    box = pv.box.map(v => Math.round(v * k));
+  } else {   // 紙面の画像がないとき：写真の部分だけを見せる
+    cv.width = 640; cv.height = 480; box = [0, 0, 640, 480];
+  }
+  const [x0, y0, x1, y1] = box, bw = x1 - x0, bh = y1 - y0;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, bw, bh); ctx.clip();
+  if (bg) {   // 枠いっぱいに（はみ出す分は切る）
+    const s = Math.max(bw / bg.naturalWidth, bh / bg.naturalHeight), w = bg.naturalWidth * s, h = bg.naturalHeight * s;
+    ctx.drawImage(bg, x0 + (bw - w) / 2, y0 + (bh - h) / 2, w, h);
+  } else { ctx.fillStyle = '#ddd'; ctx.fillRect(x0, y0, bw, bh); }
+  if (sil) { const h = bh * 0.82, w = h * sil.naturalWidth / sil.naturalHeight; ctx.drawImage(sil, x0 + (bw - w) / 2, y1 - h, w, h); }
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.font = `bold ${Math.round(bw * 0.035)}px sans-serif`;
+  const label = '人の部分はイメージ', tw = ctx.measureText(label).width, pad = bw * 0.015;
+  ctx.fillRect(x0 + pad, y0 + pad, tw + pad * 2, bw * 0.05);
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(label, x0 + pad * 2, y0 + pad + bw * 0.025);
+  ctx.restore();
+  try { lastPv = cv.toDataURL('image/jpeg', 0.8); } catch (e) { lastPv = ''; }
+}
+async function showPrev() {
+  $('pvErr').textContent = ''; view('vPrev');
+  $('pvOk').disabled = true;
+  try { await drawPreview(); } catch (e) { $('pvErr').textContent = '完成イメージを表示できませんでした（このまま決めても大丈夫です）。'; }
+  $('pvOk').disabled = false;
+}
+$('pvOk').onclick = () => choose(pick, pickBg, PIN || pendPin);
+$('pvTitle').onclick = () => showTitle(false, true);
+$('pvBg').onclick = () => showBg();
 // この画面でパスワードを決めたばかりのとき（パスワードがまちがっている心配がない）は、
 // 返事を待たずに「決めました」の画面に進み、保存は裏で進める。保存の状況は画面に小さく出す
 let saving = 0;
 function setSaveState(st, retry) {
   const el = $('saveState');
   el.className = st;
-  el.innerHTML = st === 'saving' ? '<span class="dots">タイトルを保存しています</span>' :
-                 st === 'ok' ? '✓ タイトルを保存しました' :
+  const what = BGS().length ? 'タイトルと背景' : 'タイトル';
+  el.innerHTML = st === 'saving' ? `<span class="dots">${what}を保存しています</span>` :
+                 st === 'ok' ? `✓ ${what}を保存しました` :
                  '保存できませんでした。電波のよいところで、下のボタンを押してください。<button type="button" id="saveRetry">もう一度保存する</button>';
   $('reloadBtn').disabled = $('toTitleBtn').disabled = st === 'saving';
   if (retry) $('saveRetry').onclick = retry;
 }
-async function chooseFast(i, pin) {
-  const prev = info.hl, my = ++saving;
-  info.hl = i;
-  waitMessage('タイトルを決めました！<br><br>'); setSaveState('saving');
+const chooseBody = (i, b, pin) => Object.assign({ action: 'choose', hl: i, pin }, b != null ? { bg: b } : {});
+const DONE_HEAD = () => BGS().length ? 'タイトルと背景を決めました！<br><br>' : 'タイトルを決めました！<br><br>';
+async function chooseFast(i, b, pin) {
+  const prev = info.hl, prevBg = info.bg, my = ++saving;
+  info.hl = i; if (b != null) info.bg = b;
+  waitMessage(DONE_HEAD()); setSaveState('saving');
   try {
-    if (pinJob && !(await pinJob)) { info.hl = prev; return; }   // パスワードの設定に失敗した（画面はもう戻してある）
+    if (pinJob && !(await pinJob)) { info.hl = prev; info.bg = prevBg; return; }   // パスワードの設定に失敗した（画面はもう戻してある）
     pinJob = null;
-    const j = await call({ action: 'choose', hl: i, pin }, 20000);
+    const j = await call(chooseBody(i, b, pin), 20000);
     if (my !== saving) return;
     if (j.ok) return setSaveState('ok');
-    info.hl = prev;
+    info.hl = prev; info.bg = prevBg;
     if (j.error === 'blocked') return message(BLOCKED);
     if (j.error === 'shot') return message('撮影が終わっているため、タイトルは変えられません。<br>下のボタンを押して、写真を受け取ってください。', true, '写真を受け取る');
     if (j.error === 'need_pin') return start();
-    PIN = ''; showTitle(false); $('titleErr').innerHTML = errText(j); $('tpin').dataset.stale = '1';
+    PIN = ''; pendPin = ''; showTitle(false, true); $('titlePinBox').classList.remove('hide'); $('tpin').value = '';
+    $('titleErr').innerHTML = errText(j); $('tpin').dataset.stale = '1';
   } catch (err) {
     if (my !== saving) return;
-    info.hl = prev; waitMessage('');
-    setSaveState('fail', () => chooseFast(i, pin));
+    info.hl = prev; info.bg = prevBg; waitMessage('');
+    setSaveState('fail', () => chooseFast(i, b, pin));
   }
 }
-async function choose(i, pin) {
-  if (PIN && pin === PIN) return chooseFast(i, pin);
-  loading('タイトルを決めています');
+async function choose(i, b, pin) {
+  if (PIN && pin === PIN) return chooseFast(i, b, pin);
+  loading(BGS().length ? 'タイトルと背景を決めています' : 'タイトルを決めています');
   try {
-    const j = await call({ action: 'choose', hl: i, pin });
+    const j = await call(chooseBody(i, b, pin));
     if (!j.ok) {
       if (j.error === 'blocked') return message(BLOCKED);
       if (j.error === 'shot') return message('撮影が終わっているため、タイトルは変えられません。<br>下のボタンを押して、写真を受け取ってください。', true, '写真を受け取る');
       if (j.error === 'need_pin') return start();
-      PIN = ''; view('vTitle'); $('titlePinBox').classList.remove('hide');
+      PIN = ''; pendPin = ''; showTitle(false, true); $('titlePinBox').classList.remove('hide'); $('tpin').value = '';
       $('titleErr').innerHTML = errText(j); $('tpin').dataset.stale = '1'; return;
     }
-    PIN = pin; info.hl = j.hl;
-    waitMessage('タイトルを決めました！<br><br>');
-  } catch (err) { showRetry(() => choose(i, pin)); }
+    PIN = pin; info.hl = j.hl; if (j.bg !== undefined) info.bg = j.bg;
+    waitMessage(DONE_HEAD());
+  } catch (err) { showRetry(() => choose(i, b, pin)); }
 }
 
 // ---- パスワードを入れて受け取る
