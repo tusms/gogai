@@ -62,6 +62,8 @@
   .bgopt.sel { border:3px solid var(--blue); background:#eef4fd; padding:3px 3px 7px; }
   .bgopt.sel::after { content:"✓"; position:absolute; top:8px; right:8px; width:26px; height:26px; line-height:26px; border-radius:50%; background:var(--blue); color:#fff; font-size:16px; }
   .bgopt small { display:block; font-size:11px; font-weight:normal; color:var(--muted); }
+  .bgopt .nobg { display:flex; align-items:center; justify-content:center; width:100%; aspect-ratio:4/3; border-radius:6px; margin-bottom:6px;
+                 background:repeating-linear-gradient(45deg, #eef0f3 0 10px, #e2e5ea 10px 20px); color:var(--muted); font-size:12px; font-weight:normal; line-height:1.5; }
   #pvWrap { position:relative; margin:8px 0 2px; }
   #pvCanvas { display:block; width:100%; border:1px solid var(--line); border-radius:4px; box-shadow:0 2px 8px rgba(0,0,0,.12); background:#fff; }
   .pvnote { font-size:13px; color:var(--muted); margin:6px 0 0; }
@@ -196,7 +198,8 @@ const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const HEADS = () => (info && info.headlines) || [];
 function chosen() { return info && info.hl != null && HEADS()[info.hl] != null ? HEADS()[info.hl] : null; }
 const BGS = () => (info && info.backgrounds) || [];
-const bgOf = id => BGS().find(b => String(b.id) === String(id)) || null;
+const NO_BG = { id: 'none', name: '背景なし' };   // 背景を合成しない（撮影したままの写真）
+const bgOf = id => String(id) === 'none' ? NO_BG : (BGS().find(b => String(b.id) === String(id)) || null);
 function chosenBg() { return info && info.bg != null ? bgOf(info.bg) : null; }
 // パスワード設定ずみ・撮影まだ のときの画面（選んだタイトルも見せる）
 const WAIT_TEXT = '記念号外の撮影をご希望の方は、フォトブースへお越しください。<br>撮影ブースで、係の人にカードを渡してください。<br><br>撮影後5分ほどたっても受け取れない場合や、パスワードを忘れた場合は、ブースの係の人に声をかけてください。';
@@ -391,7 +394,8 @@ const asset = path => path + (PV() && PV().v ? '?v=' + PV().v : '');
 function showBg() {
   if (pickBg == null && info && info.bg != null && bgOf(info.bg)) pickBg = String(info.bg);
   $('bgopts').innerHTML = BGS().map(b =>
-    `<button type="button" class="bgopt${String(b.id) === pickBg ? ' sel' : ''}" data-id="${esc(b.id)}"><img src="${asset('bg/' + b.id + '.jpg')}" alt="" loading="lazy">${esc(b.name)}${String(b.id) === String(info && info.bg) ? '<small>いま選んでいる背景</small>' : ''}</button>`).join('');
+    `<button type="button" class="bgopt${String(b.id) === pickBg ? ' sel' : ''}" data-id="${esc(b.id)}"><img src="${asset('bg/' + b.id + '.jpg')}" alt="" loading="lazy">${esc(b.name)}${String(b.id) === String(info && info.bg) ? '<small>いま選んでいる背景</small>' : ''}</button>`).join('') +
+    `<button type="button" class="bgopt${pickBg === 'none' ? ' sel' : ''}" data-id="none"><span class="nobg">撮影したまま<br>（合成しない）</span>背景なし${String(info && info.bg) === 'none' ? '<small>いま選んでいる背景</small>' : ''}</button>`;
   $('bgopts').querySelectorAll('.bgopt').forEach(b => b.onclick = () => {
     pickBg = b.dataset.id; $('bgErr').textContent = '';
     $('bgopts').querySelectorAll('.bgopt').forEach(x => x.classList.toggle('sel', x === b));
@@ -416,7 +420,7 @@ async function drawPreview() {
   const cv = $('pvCanvas'), ctx = cv.getContext('2d'), pv = PV();
   const day = pv && pv.days && pv.days.indexOf(today()) >= 0 ? today() : (pv && pv.fb);
   let tpl = null, bg = null, sil = null;
-  try { bg = await loadImg(asset('bg/' + pickBg + '.jpg')); } catch (e) { /* 読み込めなければ灰色 */ }
+  if (pickBg !== 'none') { try { bg = await loadImg(asset('bg/' + pickBg + '.jpg')); } catch (e) { /* 読み込めなければ灰色 */ } }
   try { sil = await loadImg(asset('sil.png')); } catch (e) { /* なくても進める */ }
   if (pv && pv.box && pv.size && day) { try { tpl = await loadImg(asset(`tpl/${day}_${pick + 1}.jpg`)); } catch (e) { tpl = null; } }
   let box;
@@ -433,7 +437,13 @@ async function drawPreview() {
   if (bg) {   // 枠いっぱいに（はみ出す分は切る）
     const s = Math.max(bw / bg.naturalWidth, bh / bg.naturalHeight), w = bg.naturalWidth * s, h = bg.naturalHeight * s;
     ctx.drawImage(bg, x0 + (bw - w) / 2, y0 + (bh - h) / 2, w, h);
-  } else { ctx.fillStyle = '#ddd'; ctx.fillRect(x0, y0, bw, bh); }
+  } else {
+    ctx.fillStyle = '#d9dde3'; ctx.fillRect(x0, y0, bw, bh);
+    if (pickBg === 'none') {   // 背景なし：撮影した場所がそのまま写る
+      ctx.fillStyle = '#7a828e'; ctx.font = `bold ${Math.round(bw * 0.045)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('撮影した場所がそのまま写ります', x0 + bw / 2, y0 + bh * 0.18); ctx.textAlign = 'left';
+    }
+  }
   if (sil) { const h = bh * 0.82, w = h * sil.naturalWidth / sil.naturalHeight; ctx.drawImage(sil, x0 + (bw - w) / 2, y1 - h, w, h); }
   ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.font = `bold ${Math.round(bw * 0.035)}px sans-serif`;
   const label = '人の部分はイメージ', tw = ctx.measureText(label).width, pad = bw * 0.015;
