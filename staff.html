@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>係用ページ</title>
+<style>
+  :root { --blue:#1a56b8; --line:#d0d4da; --muted:#666; --ok:#1e7d32; --warn:#b3261e; --orange:#e07b12; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif; background:#f4f5f7; color:#111; }
+  header { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--line); padding:10px 14px 0; }
+  header h1 { font-size:17px; margin:0; display:flex; align-items:center; gap:8px; }
+  header h1 small { font-size:12px; font-weight:normal; color:var(--muted); }
+  #net { margin-left:auto; font-size:12px; font-weight:normal; padding:2px 8px; border-radius:999px; background:#eef6ee; color:var(--ok); }
+  #net.busy { background:#e8f0fc; color:var(--blue); } #net.problem { background:#fdecea; color:var(--warn); font-weight:bold; }
+  .tabs { display:flex; margin-top:8px; }
+  .tabs button { flex:1; border:0; border-bottom:3px solid transparent; background:none; padding:10px 0; font-size:15px; font-weight:bold; color:var(--muted); }
+  .tabs button.on { color:var(--blue); border-bottom-color:var(--blue); }
+  main { padding:14px; max-width:560px; margin:0 auto; }
+  .panel { background:#fff; border-radius:10px; padding:14px; margin-bottom:12px; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  .big { font-size:26px; font-weight:900; line-height:1.3; }
+  .big small { font-size:14px; color:var(--muted); font-weight:bold; }
+  .sum { font-size:13px; color:#333; margin-top:6px; line-height:1.7; }
+  button { font:inherit; font-size:15px; padding:10px 14px; border-radius:8px; border:1px solid var(--line); background:#fff; color:#111; }
+  button.primary { width:100%; background:var(--blue); color:#fff; border-color:var(--blue); font-weight:bold; font-size:17px; padding:14px; }
+  button:disabled { opacity:.45; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; min-height:40px; }
+  .chip { min-width:58px; padding:8px 8px; border:2px solid var(--line); border-radius:8px; background:#fff; font-size:19px; font-weight:bold; text-align:center; }
+  .chip .tag { display:block; font-size:11px; }
+  .chip.sel { border-color:var(--blue); background:#eaf1fc; color:var(--blue); }
+  .chip.absent { border-color:var(--warn); background:#fdecea; color:var(--warn); }
+  .chip.late { border-style:dashed; }
+  .step { font-weight:bold; color:var(--blue); margin-top:10px; font-size:14px; }
+  .say { background:#fff8e6; border:1px solid #f1d48a; border-radius:8px; padding:10px; font-size:15px; font-weight:bold; margin:8px 0; line-height:1.6; }
+  .note { font-size:12px; color:var(--muted); line-height:1.6; margin:6px 0 0; }
+  .seg { display:flex; } .seg button { flex:1; border-radius:0; margin-left:-1px; padding:9px 4px; font-size:14px; }
+  .seg button:first-child { border-radius:8px 0 0 8px; } .seg button:last-child { border-radius:0 8px 8px 0; }
+  .seg button.on { background:#111; color:#fff; border-color:#111; font-weight:bold; }
+  #msg { position:fixed; left:12px; right:12px; bottom:14px; z-index:9; padding:12px 14px; border-radius:10px; font-weight:bold; display:none; box-shadow:0 4px 16px rgba(0,0,0,.18); }
+  #msg.ok { display:block; background:#eef6ee; color:var(--ok); } #msg.err { display:block; background:#fdecea; color:var(--warn); }
+  details summary { font-size:14px; color:var(--blue); cursor:pointer; }
+  input { font:inherit; font-size:18px; padding:10px; border:1px solid var(--line); border-radius:8px; width:100%; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .row input { flex:1; } .row button { white-space:nowrap; }
+  dl { display:grid; grid-template-columns: 7em 1fr; gap:8px 10px; margin:6px 0 0; font-size:15px; }
+  dt { color:var(--muted); } dd { margin:0; font-weight:bold; }
+  .good { color:var(--ok); } .bad { color:var(--warn); } .mid { color:#b85c00; }
+  .hide { display:none !important; }
+  .blocked { background:#fff6f5; border:2px solid var(--warn); border-radius:10px; padding:16px; font-weight:bold; color:var(--warn); line-height:1.7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>係用ページ <small id="who"></small><span id="net">✓</span></h1>
+  <div class="tabs"><button data-tab="slime" class="on">スライムの呼び出し</button><button data-tab="look">番号を調べる</button></div>
+</header>
+<main>
+  <div id="noKey" class="blocked hide"></div>
+
+  <!-- スライムの呼び出し -->
+  <div id="tSlime">
+    <div class="panel">
+      <div class="big" id="bigNow">読み込み中…</div>
+      <div class="sum" id="sum"></div>
+    </div>
+    <div class="panel hide" id="pNext">
+      <h2>次の回を呼ぶ（第<span id="nextRound"></span>回）</h2>
+      <div class="step">① 呼ばれたけれど来なかった番号で、いま来ている人をタップ</div>
+      <div class="chips" id="waitChips"></div>
+      <div class="step">② 呼び出す番号</div>
+      <div class="say" id="plan"></div>
+      <button class="primary" id="startBtn">この番号を呼び出す</button>
+    </div>
+    <div class="panel hide" id="pCur">
+      <h2>第<span id="curRound"></span>回 お呼び出し中</h2>
+      <div class="say" id="curSay"></div>
+      <div class="step">来なかった番号をタップ（もう一度タップで戻す）</div>
+      <div class="chips" id="curChips"></div>
+      <button class="primary" id="finishBtn">この回を終える</button>
+      <p class="note">来た人は「体験済み」、来なかった人は「まだ来ていない番号」に入ります。</p>
+    </div>
+    <div class="panel">
+      <details>
+        <summary>受付の状態・1 回の人数を変える</summary>
+        <div class="step">受付の状態</div>
+        <div class="seg" id="stSeg"><button data-st="before">呼び出し前</button><button data-st="open">受付中</button><button data-st="closed">本日終了</button></div>
+        <div class="step">1 回の人数</div>
+        <div class="row"><input type="number" id="cap" min="1" max="50" inputmode="numeric"><button id="capBtn">変える</button></div>
+      </details>
+      <details style="margin-top:10px">
+        <summary>体験済みの番号（<span id="doneCount">0</span> 人）</summary>
+        <p class="note" id="doneList" style="font-size:14px;color:#111;word-break:break-all"></p>
+      </details>
+    </div>
+  </div>
+
+  <!-- 番号を調べる -->
+  <div id="tLook" class="hide">
+    <div class="panel">
+      <h2>カードの番号を調べる</h2>
+      <div class="row"><input type="text" id="lookN" inputmode="numeric" placeholder="例：23"><button id="lookBtn">調べる</button></div>
+      <div id="lookRes" style="margin-top:12px"></div>
+    </div>
+  </div>
+</main>
+<div id="msg"></div>
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbxEXdciDqjAdCKejwzieDS-Kr9vQhJfnj9bFHYJvaiZ4l_6sLswEwwepLQcY9aY0AF9/exec';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// ---- 係用の鍵（QR の # のあと）。このスマホに保存し、アドレス欄からは消す
+let KEY = '';
+try { KEY = localStorage.getItem('pbStaffKey') || ''; } catch (e) { /* 保存できない設定のとき */ }
+const m = location.hash.match(/k=([A-Za-z0-9_-]+)/);
+if (m) { KEY = m[1]; try { localStorage.setItem('pbStaffKey', KEY); } catch (e) { /* その場だけ使う */ } history.replaceState(null, '', location.pathname); }
+
+let msgTimer = null;
+function msg(t, cls) {
+  const el = $('msg'); el.textContent = t; el.className = cls || '';
+  clearTimeout(msgTimer); if (t) msgTimer = setTimeout(() => { el.className = ''; }, cls === 'err' ? 6000 : 3000);
+}
+const KEY_ERR = {
+  'bad key': 'この係用QRは使えません。管理者から、新しい係用QRを受け取ってください。',
+  key_stopped: 'この係用QRは、管理者によって停止されています。',
+  key_expired: 'この係用QRは、使える期限を過ぎています。',
+  not_allowed: 'この係用QRでは、この操作はできません。'
+};
+function noKey(t) {
+  $('noKey').innerHTML = esc(t); $('noKey').classList.remove('hide');
+  $('tSlime').classList.add('hide'); $('tLook').classList.add('hide'); document.querySelector('.tabs').classList.add('hide');
+  stopped = true;
+}
+let stopped = false;
+async function call(body, ms = 15000) {
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ key: KEY }, body)), signal: ctl.signal });
+    const j = await r.json();
+    if (!j.ok && KEY_ERR[j.error] && j.error !== 'not_allowed') noKey(KEY_ERR[j.error]);
+    return j;
+  } finally { clearTimeout(t); }
+}
+function net(state) { const el = $('net'); el.className = state === 'ok' ? '' : state; el.textContent = state === 'ok' ? '✓' : state === 'busy' ? '通信中…' : 'つながりません'; }
+
+// ---- タブ
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('tSlime').classList.toggle('hide', b.dataset.tab !== 'slime'); $('tLook').classList.toggle('hide', b.dataset.tab !== 'look');
+  if (b.dataset.tab === 'look') setTimeout(() => $('lookN').focus(), 50);
+});
+
+// ---- スライムの呼び出し
+let S = null, lateSel = new Set(), absentSel = new Set(), busy = false;
+function ranges(nums) {
+  const a = [...nums].sort((x, y) => x - y), out = [];
+  for (let i = 0; i < a.length; i++) { let j = i; while (j + 1 < a.length && a[j + 1] === a[j] + 1) j++; out.push(i === j ? `${a[i]}` : `${a[i]}〜${a[j]}`); i = j; }
+  return out.join('、');
+}
+function plan() {
+  const late = [...lateSel].sort((a, b) => a - b), k = Math.max(Math.min(S.cap - late.length, S.max - S.upto), 0), nw = [];
+  for (let i = 1; i <= k; i++) nw.push(S.upto + i);
+  return { late, nw };
+}
+function draw() {
+  if (!S) return;
+  if (!S.max) { $('bigNow').innerHTML = '<small>スライム券つきカードが設定されていません</small>'; return; }
+  const stName = { before: '呼び出し前', open: '受付中', closed: '本日終了' }[S.st];
+  $('bigNow').innerHTML = S.cur.length ? `${ranges(S.cur)} 番 <small>をお呼び出し中</small>`
+    : (S.upto ? `${S.upto} 番 <small>までお呼び出し済み</small>` : '<small>まだ誰も呼んでいません</small>');
+  $('sum').innerHTML = `${stName}　／　体験済み ${S.done.length} 人　まだ来ていない ${S.wait.length} 人　まだ呼んでいない ${S.remaining} 人` +
+    (S.wait.length ? `<br>まだ来ていない番号：<b>${ranges(S.wait)}</b>` : '');
+  document.querySelectorAll('#stSeg button').forEach(b => b.classList.toggle('on', b.dataset.st === S.st));
+  if (document.activeElement !== $('cap')) $('cap').value = S.cap;
+  $('doneCount').textContent = S.done.length; $('doneList').textContent = S.done.length ? ranges(S.done) : 'まだいません';
+  const inRound = S.cur.length > 0;
+  $('pNext').classList.toggle('hide', inRound); $('pCur').classList.toggle('hide', !inRound);
+  if (!inRound) {
+    lateSel = new Set([...lateSel].filter(n => S.wait.includes(n)));
+    $('nextRound').textContent = S.round + 1;
+    $('waitChips').innerHTML = S.wait.length ? S.wait.map(n => `<button class="chip${lateSel.has(n) ? ' sel' : ''}" data-n="${n}">${n}<span class="tag">${lateSel.has(n) ? '来ている' : ''}</span></button>`).join('')
+      : '<span class="note">ありません</span>';
+    $('waitChips').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+      const n = +b.dataset.n;
+      if (lateSel.has(n)) lateSel.delete(n); else if (lateSel.size < S.cap) lateSel.add(n); else return msg(`1 回の人数（${S.cap} 人）までしか選べません`, 'err');
+      draw();
+    });
+    const p = plan(), parts = [];
+    if (p.late.length) parts.push(`優先：${ranges(p.late)} 番（${p.late.length} 人）`);
+    if (p.nw.length) parts.push(`新しく：${ranges(p.nw)} 番（${p.nw.length} 人）`);
+    $('plan').innerHTML = parts.length ? parts.join('<br>') : (S.remaining ? '' : 'すべての番号を呼び出しました。');
+    if (S.st !== 'open') $('plan').innerHTML += '<br><span style="color:var(--warn)">「受付の状態」を「受付中」にすると呼び出せます。</span>';
+    $('startBtn').disabled = busy || S.st !== 'open' || !(p.late.length + p.nw.length);
+  } else {
+    absentSel = new Set([...absentSel].filter(n => S.cur.includes(n)));
+    $('curRound').textContent = S.round;
+    $('curSay').textContent = `「${ranges(S.cur)} 番の方、スライム作りのコーナーへお越しください」`;
+    $('curChips').innerHTML = S.cur.map(n => {
+      const late = (S.late || []).includes(n), ab = absentSel.has(n);
+      return `<button class="chip${ab ? ' absent' : ''}${late ? ' late' : ''}" data-n="${n}">${n}<span class="tag">${ab ? '来ない' : (late ? '優先' : '')}</span></button>`;
+    }).join('');
+    $('curChips').querySelectorAll('.chip').forEach(b => b.onclick = () => { const n = +b.dataset.n; absentSel.has(n) ? absentSel.delete(n) : absentSel.add(n); draw(); });
+    $('finishBtn').textContent = `この回を終える（来た ${S.cur.length - absentSel.size} 人・来ない ${absentSel.size} 人）`;
+    $('finishBtn').disabled = busy;
+  }
+}
+async function load() {
+  if (stopped || busy) return;
+  try {
+    const j = await call({ action: 'sl_get' }, 10000);
+    if (j.ok) { S = j.state; draw(); net('ok'); } else if (!KEY_ERR[j.error]) net('problem');
+  } catch (e) { net('problem'); }
+}
+async function op(body, okText) {
+  if (busy || stopped) return null;
+  busy = true; draw(); net('busy');
+  try {
+    const j = await call(Object.assign({ action: 'sl_op' }, body), 25000);
+    if (j.state) S = j.state;
+    if (!j.ok) { msg(KEY_ERR[j.error] || j.error || '失敗しました', 'err'); net('ok'); return null; }
+    msg(okText(j), 'ok'); net('ok');
+    return j;
+  } catch (e) { msg('通信できませんでした。もう一度押してください（呼び出し状況を確かめてから）。', 'err'); net('problem'); return null; }
+  finally { busy = false; draw(); }
+}
+$('startBtn').onclick = async () => {
+  const p = plan();
+  const j = await op({ op: 'start', late: p.late }, j => `第${j.state.round}回を呼び出しました：${ranges([...j.late, ...j.new])} 番`);
+  if (j) { lateSel.clear(); absentSel.clear(); draw(); }
+};
+$('finishBtn').onclick = async () => {
+  const j = await op({ op: 'finish', absent: [...absentSel] }, j => `この回を終えました（来た ${j.came.length} 人${j.absent.length ? `、来なかった：${ranges(j.absent)} 番` : ''}）`);
+  if (j) { absentSel.clear(); draw(); }
+};
+document.querySelectorAll('#stSeg button').forEach(b => b.onclick = () => op({ op: 'status', st: b.dataset.st }, () => '受付の状態を変えました'));
+$('capBtn').onclick = () => op({ op: 'cap', cap: +$('cap').value }, () => '1 回の人数を変えました');
+
+// ---- 番号を調べる
+function hm(iso) { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+const SLIME_ME = { done: ['good', '体験済み'], now: ['mid', 'お呼び出し中'], missed: ['bad', '呼んだが来ていない（次の回に優先）'], wait: ['', 'まだ呼んでいない'] };
+$('lookBtn').onclick = async () => {
+  const n = $('lookN').value.replace(/[^0-9]/g, '');
+  if (!n) return msg('番号を入れてください', 'err');
+  $('lookRes').innerHTML = '<p class="note">調べています…</p>'; net('busy');
+  try {
+    const j = await call({ action: 'st_lookup', n }, 15000); net('ok');
+    if (!j.ok) { $('lookRes').innerHTML = `<p class="bad">${esc(KEY_ERR[j.error] || j.error || '調べられませんでした')}</p>`; return; }
+    if (!j.found) { $('lookRes').innerHTML = `<p class="bad">${esc(n)} 番のカードは見つかりません。</p>`; return; }
+    const state = j.revoked ? '<span class="bad">無効（管理画面で無効にしたカード）</span>'
+      : j.blocked ? '<span class="bad">パスワードを 10 回まちがえて使えない → 管理画面でリセット</span>'
+      : j.locked_until ? `<span class="mid">パスワードのまちがいで ${hm(j.locked_until)} まで待ち</span>` : '<span class="good">ふつう</span>';
+    const photo = j.uploaded ? `<span class="good">受け取れます</span>${j.expires ? `（${hm(j.expires)} まで）` : ''}`
+      : '<span class="mid">まだ届いていません</span>（撮影直後なら数分待つ。5 分以上たっても届かなければブースの PC で確認）';
+    const sl = j.slime ? SLIME_ME[j.slime.me] || ['', ''] : null;
+    $('lookRes').innerHTML = `<div class="big" style="font-size:22px">No.${esc(j.n)}</div><dl>
+      <dt>パスワード</dt><dd>${j.pin_set ? '<span class="good">設定済み</span>' : '<span class="bad">まだ</span>（QR を読み取って設定してもらう）'}</dd>
+      <dt>タイトル</dt><dd>${j.hl_text ? esc(j.hl_text) : '<span class="mid">まだ選んでいない</span>'}</dd>
+      <dt>背景</dt><dd>${j.bg_name ? esc(j.bg_name) : '<span class="mid">まだ選んでいない</span>'}</dd>
+      <dt>写真</dt><dd>${photo}</dd>
+      <dt>保存</dt><dd>${j.saves ? `${j.saves} 回` : 'まだ'}</dd>
+      <dt>状態</dt><dd>${state}</dd>
+      ${sl ? `<dt>スライム</dt><dd class="${sl[0]}">${sl[1]}</dd>` : ''}
+    </dl>`;
+  } catch (e) { net('problem'); $('lookRes').innerHTML = '<p class="bad">通信できませんでした。もう一度押してください。</p>'; }
+};
+$('lookN').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookBtn').click(); });
+
+// ---- はじめに
+if (!KEY) noKey('係用QRを読み取って開いてください。');
+else {
+  call({ action: 'whoami' }).then(j => { if (j.ok) $('who').textContent = j.name || ''; }).catch(() => {});
+  load();
+  setInterval(() => { if (!document.hidden && !$('tSlime').classList.contains('hide')) load(); }, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+}
+</script>
+</body>
+</html>
