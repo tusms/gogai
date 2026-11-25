@@ -54,7 +54,7 @@
 <body>
 <header>
   <h1>係用ページ <small id="who"></small><span id="net">✓</span></h1>
-  <div class="tabs"><button data-tab="slime" class="on">スライムの呼び出し</button><button data-tab="look">番号を調べる</button></div>
+  <div class="tabs"><button data-tab="slime" class="on">スライム</button><button data-tab="look">番号を調べる</button><button data-tab="lock" class="hide" id="lockTabBtn">ロック</button></div>
 </header>
 <main>
   <div id="noKey" class="blocked hide"></div>
@@ -96,6 +96,17 @@
     </div>
   </div>
 
+  <!-- 管理者ロック（管理者のスマホだけ） -->
+  <div id="tLock" class="hide">
+    <div class="panel">
+      <h2>ブースの PC の管理者ロック</h2>
+      <p class="note" style="margin-top:0">ロック中の PC では、撮影の操作画面（とスライムの呼び出し・案内モニター）以外は開けません。数秒〜10 秒ほどで PC に反映します。</p>
+      <div class="row"><button class="primary" id="lockAll" style="background:#b3261e;border-color:#b3261e">すべてロック</button><button class="primary" id="unlockAll">すべて解除</button></div>
+      <div id="lockList" style="margin-top:12px"></div>
+      <p class="note">PC で解除パスワードを入れた場合は、その PC だけ 10 分間解除されます（ここには出ません）。そのあとここでロックすると、すぐロックに戻ります。</p>
+    </div>
+  </div>
+
   <!-- 番号を調べる -->
   <div id="tLook" class="hide">
     <div class="panel">
@@ -129,7 +140,7 @@ const KEY_ERR = {
 };
 function noKey(t) {
   $('noKey').innerHTML = esc(t); $('noKey').classList.remove('hide');
-  $('tSlime').classList.add('hide'); $('tLook').classList.add('hide'); document.querySelector('.tabs').classList.add('hide');
+  $('tSlime').classList.add('hide'); $('tLook').classList.add('hide'); $('tLock').classList.add('hide'); document.querySelector('.tabs').classList.add('hide');
   stopped = true;
 }
 let stopped = false;
@@ -148,6 +159,8 @@ function net(state) { const el = $('net'); el.className = state === 'ok' ? '' : 
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
   $('tSlime').classList.toggle('hide', b.dataset.tab !== 'slime'); $('tLook').classList.toggle('hide', b.dataset.tab !== 'look');
+  $('tLock').classList.toggle('hide', b.dataset.tab !== 'lock');
+  if (b.dataset.tab === 'lock') loadLock();
   if (b.dataset.tab === 'look') setTimeout(() => $('lookN').focus(), 50);
 });
 
@@ -266,10 +279,43 @@ $('lookBtn').onclick = async () => {
 };
 $('lookN').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookBtn').click(); });
 
+// ---- 管理者ロック（管理者のスマホだけ）
+let lockBusy = false;
+const lockState = e => e && e.s === 'locked';
+function drawLock(j) {
+  $('lockList').innerHTML = j.pcs.map(x => `<div class="row" style="justify-content:space-between;border-top:1px solid #eee;padding-top:8px">
+      <div><b>${esc(x.name)}</b>${x.on ? '' : ' <span class="note">（鍵は使えない）</span>'}<br>
+        ${lockState(x.eff) ? '<span class="bad">🔒 ロック中</span>' : '<span class="good">🔓 解除中</span>'}</div>
+      <button data-lk="${esc(x.id)}" data-s="${lockState(x.eff) ? 'unlocked' : 'locked'}">${lockState(x.eff) ? '解除する' : 'ロックする'}</button></div>`).join('');
+  $('lockList').querySelectorAll('[data-lk]').forEach(b => b.onclick = () => setLock(b.dataset.lk, b.dataset.s));
+}
+async function loadLock() {
+  if (lockBusy) return;
+  try { const j = await call({ action: 'lock_get' }, 10000); if (j.ok) { drawLock(j); net('ok'); } else msg(KEY_ERR[j.error] || j.error, 'err'); }
+  catch (e) { net('problem'); }
+}
+async function setLock(target, st) {
+  if (lockBusy) return;
+  lockBusy = true; net('busy');
+  try {
+    const j = await call({ action: 'lock_set', target, s: st }, 20000);
+    if (!j.ok) { msg(KEY_ERR[j.error] || j.error || '失敗しました', 'err'); net('ok'); return; }
+    drawLock(j); net('ok'); msg(st === 'locked' ? 'ロックしました' : '解除しました', 'ok');
+  } catch (e) { net('problem'); msg('通信できませんでした。もう一度押してください。', 'err'); }
+  finally { lockBusy = false; }
+}
+$('lockAll').onclick = () => setLock('all', 'locked');
+$('unlockAll').onclick = () => setLock('all', 'unlocked');
+
 // ---- はじめに
 if (!KEY) noKey('係用QRを読み取って開いてください。');
 else {
-  call({ action: 'whoami' }).then(j => { if (j.ok) $('who').textContent = j.name || ''; }).catch(() => {});
+  call({ action: 'whoami' }).then(j => {
+    if (!j.ok) return;
+    $('who').textContent = j.name || '';
+    if (j.role === 'owner') $('lockTabBtn').classList.remove('hide');   // 管理者のスマホだけ「ロック」タブを出す
+  }).catch(() => {});
+  setInterval(() => { if (!document.hidden && !$('tLock').classList.contains('hide')) loadLock(); }, 10000);
   load();
   setInterval(() => { if (!document.hidden && !$('tSlime').classList.contains('hide')) load(); }, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
