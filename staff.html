@@ -59,6 +59,17 @@
 <main>
   <div id="noKey" class="blocked hide"></div>
 
+  <!-- 管理者のスマホ用 QR：解除パスワードを入れて鍵を取り出す -->
+  <div id="ownerGate" class="panel hide">
+    <h2>管理者のスマホとして登録</h2>
+    <p class="note" style="margin-top:0">ブースの PC の解除パスワードを入れてください。正しければ、このスマホに鍵が保存されます。</p>
+    <form id="ownerForm" autocomplete="off">
+      <input type="password" id="ownerPw" placeholder="解除パスワード" style="font:inherit;font-size:17px;padding:10px;width:100%;border:1px solid #d0d4da;border-radius:8px">
+      <button class="primary" type="submit" id="ownerBtn" style="margin-top:10px;width:100%">登録する</button>
+    </form>
+    <div id="ownerErr" style="color:#b3261e;font-weight:bold;margin-top:8px"></div>
+  </div>
+
   <!-- スライムの呼び出し -->
   <div id="tSlime">
     <div class="panel">
@@ -126,6 +137,23 @@ let KEY = '';
 try { KEY = localStorage.getItem('pbStaffKey') || ''; } catch (e) { /* 保存できない設定のとき */ }
 const m = location.hash.match(/k=([A-Za-z0-9_-]+)/);
 if (m) { KEY = m[1]; try { localStorage.setItem('pbStaffKey', KEY); } catch (e) { /* その場だけ使う */ } history.replaceState(null, '', location.pathname); }
+// 管理者のスマホ用 QR（#e=…）：鍵は解除パスワードで暗号化されている。パスワードを入れて取り出す（PC の adminlock.py の seal と同じ計算）
+const sealed = (location.hash.match(/e=([A-Za-z0-9_-]+)/) || [])[1] || '';
+if (sealed) history.replaceState(null, '', location.pathname);
+async function unseal(payload, pw) {
+  const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+  const raw = Uint8Array.from(atob(b64 + '='.repeat((4 - b64.length % 4) % 4)), c => c.charCodeAt(0));
+  const it = ((raw[1] << 24) | (raw[2] << 16) | (raw[3] << 8) | raw[4]) >>> 0;
+  const salt = raw.slice(5, 21), tag = raw.slice(21, 37), ct = raw.slice(37);
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: it }, base, (32 + ct.length) * 8));
+  const mk = await crypto.subtle.importKey('raw', bits.slice(0, 32), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const both = new Uint8Array(salt.length + ct.length); both.set(salt); both.set(ct, salt.length);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', mk, both)).slice(0, 16);
+  let diff = 0; for (let i = 0; i < 16; i++) diff |= mac[i] ^ tag[i];
+  if (diff) return null;
+  return new TextDecoder().decode(ct.map((b, i) => b ^ bits[32 + i]));
+}
 
 let msgTimer = null;
 function msg(t, cls) {
@@ -308,8 +336,7 @@ $('lockAll').onclick = () => setLock('all', 'locked');
 $('unlockAll').onclick = () => setLock('all', 'unlocked');
 
 // ---- はじめに
-if (!KEY) noKey('係用QRを読み取って開いてください。');
-else {
+function begin() {
   call({ action: 'whoami' }).then(j => {
     if (!j.ok) return;
     $('who').textContent = j.name || '';
@@ -320,6 +347,22 @@ else {
   setInterval(() => { if (!document.hidden && !$('tSlime').classList.contains('hide')) load(); }, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 }
+if (sealed) {   // 管理者のスマホ用 QR：パスワードを聞いてから始める
+  $('tSlime').classList.add('hide'); document.querySelector('.tabs').classList.add('hide');
+  $('ownerGate').classList.remove('hide'); $('ownerPw').focus();
+  $('ownerForm').onsubmit = async e => {
+    e.preventDefault(); $('ownerErr').textContent = ''; $('ownerBtn').disabled = true; $('ownerBtn').textContent = '確認中…';
+    let k = null;
+    try { k = await unseal(sealed, $('ownerPw').value); } catch (err) { k = null; }
+    $('ownerBtn').disabled = false; $('ownerBtn').textContent = '登録する';
+    if (!k) { $('ownerErr').textContent = 'パスワードがちがいます'; $('ownerPw').value = ''; return; }
+    KEY = k; try { localStorage.setItem('pbStaffKey', KEY); } catch (err) { /* その場だけ使う */ }
+    $('ownerGate').classList.add('hide'); $('tSlime').classList.remove('hide'); document.querySelector('.tabs').classList.remove('hide');
+    msg('このスマホを管理者のスマホとして登録しました', 'ok');
+    begin();
+  };
+} else if (!KEY) noKey('係用QRを読み取って開いてください。');
+else begin();
 </script>
 </body>
 </html>
